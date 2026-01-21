@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Logo 色 → 背景 / 主標 / 副標 產生器</title>
+  <style>
+    :root{--border:#e6e6e6;--text:#111;--muted:#666;--bg:#fafafa;--card:#fff;--radius:14px;}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans","Apple Color Emoji","Segoe UI Emoji";color:var(--text);background:var(--bg);}
+    .wrap{max-width:1050px;margin:24px auto;padding:0 16px;}
+    h1{font-size:20px;margin:0 0 8px;}
+    p{margin:0 0 16px;color:var(--muted);line-height:1.5;}
+    .bar{display:flex;gap:10px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px;box-shadow:0 2px 10px rgba(0,0,0,.04);align-items:center;}
+    .bar input{flex:1 1 240px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);font-size:14px;outline:none;}
+    .bar button{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#111;color:#fff;font-size:14px;cursor:pointer;}
+    .bar button.secondary{background:#fff;color:#111;}
+    .row{margin-top:12px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px;box-shadow:0 2px 10px rgba(0,0,0,.04);}
+    .rowhead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+    .meta{color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:10px;}
+    @media (max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+    @media (max-width:520px){.grid{grid-template-columns:1fr}}
+    .tile{border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+    .swatch{height:56px;border-bottom:1px solid var(--border);}
+    .tilebody{padding:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+    .label{display:flex;flex-direction:column;gap:3px;min-width:0;}
+    .label strong{font-size:13px}
+    .label code{font-size:12px;color:#111;background:#f3f3f3;padding:2px 6px;border-radius:8px;width:fit-content}
+    .copy{padding:7px 10px;border-radius:10px;border:1px solid var(--border);background:#fff;cursor:pointer;font-size:12px;white-space:nowrap;}
+    .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#111;color:#fff;padding:10px 12px;border-radius:999px;font-size:12px;opacity:0;pointer-events:none;transition:opacity .18s ease;}
+    .toast.show{opacity:1}
+    .rules{margin-top:12px;color:var(--muted);font-size:12px;line-height:1.6;}
+    .rules code{background:#efefef;border-radius:8px;padding:2px 6px;color:#111}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Logo 色 → 背景 / 主標 / 副標 產生器</h1>
+    <p>貼上 Logo 主色（HEX），每按一次「新增一行」就會產出一組：背景色（淡、淺、柔）＋主標色（同 Hue 深色）＋副標色（跨 Hue 強調色）。</p>
+
+    <div class="bar">
+      <input id="logoInput" placeholder="輸入 Logo HEX，例如 #167939 或 167939" />
+      <button id="addBtn">新增一行</button>
+      <button id="clearBtn" class="secondary">清空</button>
+      <button id="seedBtn" class="secondary">塞入範例</button>
+    </div>
+
+    <div class="rules">
+      <div><strong>規則（可產品化）</strong></div>
+      <div>背景色：<code>H 保留</code>，<code>S clamp 20–25%</code>，<code>L clamp 90–93%</code></div>
+      <div>主標色：<code>H 保留</code>，<code>S clamp 60–80%</code>，<code>L clamp 35–45%</code></div>
+      <div>副標色：<code>直接使用 Logo 主色</code>（品牌強調）</div>
+    </div>
+
+    <div id="list"></div>
+  </div>
+
+  <div class="toast" id="toast">已複製</div>
+
+<script>
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  function normalizeHex(s){
+    if(!s) return null;
+    s = (""+s).trim().toLowerCase();
+    if(s.startsWith("#")) s = s.slice(1);
+    if(s.length === 3){ s = s.split("").map(ch => ch+ch).join(""); }
+    if(!/^[0-9a-f]{6}$/.test(s)) return null;
+    return "#"+s;
+  }
+
+  function hexToRgb(hex){
+    hex = normalizeHex(hex);
+    if(!hex) return null;
+    const n = parseInt(hex.slice(1), 16);
+    return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+  }
+
+  function rgbToHex({r,g,b}){
+    const to = (x)=> x.toString(16).padStart(2,"0");
+    return "#"+to(r)+to(g)+to(b);
+  }
+
+  function rgbToHsl({r,g,b}){
+    r/=255; g/=255; b/=255;
+    const max = Math.max(r,g,b), min = Math.min(r,g,b);
+    let h=0, s=0;
+    const l = (max+min)/2;
+    const d = max-min;
+    if(d !== 0){
+      s = d / (1 - Math.abs(2*l - 1));
+      switch(max){
+        case r: h = ((g-b)/d) % 6; break;
+        case g: h = (b-r)/d + 2; break;
+        case b: h = (r-g)/d + 4; break;
+      }
+      h *= 60;
+      if(h < 0) h += 360;
+    }
+    return { h, s:s*100, l:l*100 };
+  }
+
+  function hslToRgb({h,s,l}){
+    s/=100; l/=100;
+    const c = (1 - Math.abs(2*l - 1)) * s;
+    const x = c * (1 - Math.abs(((h/60) % 2) - 1));
+    const m = l - c/2;
+    let rp=0,gp=0,bp=0;
+    if(0<=h && h<60){ rp=c; gp=x; bp=0; }
+    else if(60<=h && h<120){ rp=x; gp=c; bp=0; }
+    else if(120<=h && h<180){ rp=0; gp=c; bp=x; }
+    else if(180<=h && h<240){ rp=0; gp=x; bp=c; }
+    else if(240<=h && h<300){ rp=x; gp=0; bp=c; }
+    else { rp=c; gp=0; bp=x; }
+    return { r:Math.round((rp+m)*255), g:Math.round((gp+m)*255), b:Math.round((bp+m)*255) };
+  }
+
+  function genPalette(logoHex){
+    const rgb = hexToRgb(logoHex);
+    if(!rgb) return null;
+    const hsl = rgbToHsl(rgb);
+
+    const bg = { h: hsl.h, s: clamp(22, 20, 25), l: clamp(91, 90, 93) };
+    const headline = { h: hsl.h, s: clamp(70, 60, 80), l: clamp(40, 35, 45) };
+    // Subtitle uses the original logo color directly
+    const subtitle = null;
+
+    return {
+      logo: normalizeHex(logoHex),
+      background: rgbToHex(hslToRgb(bg)),
+      headline: rgbToHex(hslToRgb(headline)),
+      subtitle: normalizeHex(logoHex),
+      meta: { logoH: Math.round(hsl.h), logoS: Math.round(hsl.s), logoL: Math.round(hsl.l) }
+    };
+  }
+
+  const list = document.getElementById("list");
+  const logoInput = document.getElementById("logoInput");
+  const toast = document.getElementById("toast");
+
+  function showToast(text="已複製"){
+    toast.textContent = text;
+    toast.classList.add("show");
+    setTimeout(()=>toast.classList.remove("show"), 900);
+  }
+
+  async function copyText(t){
+    try{
+      await navigator.clipboard.writeText(t);
+      showToast(`已複製 ${t}`);
+    }catch(e){
+      const ta = document.createElement("textarea");
+      ta.value = t;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      showToast(`已複製 ${t}`);
+    }
+  }
+
+  function tile(label, hex){
+    const el = document.createElement("div");
+    el.className = "tile";
+    el.innerHTML = `
+      <div class="swatch" style="background:${hex}"></div>
+      <div class="tilebody">
+        <div class="label">
+          <strong>${label}</strong>
+          <code>${hex}</code>
+        </div>
+        <button class="copy">Copy</button>
+      </div>
+    `;
+    el.querySelector(".copy").addEventListener("click", ()=>copyText(hex));
+    return el;
+  }
+
+  function addRow(logoHex){
+    const p = genPalette(logoHex);
+    if(!p){ showToast("HEX 格式不正確"); return; }
+
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `
+      <div class="rowhead">
+        <div class="meta">Logo：<code>${p.logo}</code>（HSL 約 ${p.meta.logoH}°, ${p.meta.logoS}%, ${p.meta.logoL}%）</div>
+        <button class="copy secondaryBtn">Copy 全部</button>
+      </div>
+      <div class="grid"></div>
+    `;
+
+    const grid = row.querySelector(".grid");
+    grid.appendChild(tile("Logo 主色", p.logo));
+    grid.appendChild(tile("背景色（Brand BG）", p.background));
+    grid.appendChild(tile("主標色（Headline）", p.headline));
+    grid.appendChild(tile("副標色（Logo 原色）", p.subtitle));
+
+    row.querySelector(".secondaryBtn").addEventListener("click", ()=>{
+      const text = `Logo ${p.logo}
+背景 ${p.background}
+主標 ${p.headline}
+副標 ${p.subtitle}`;
+      copyText(text);
+    });
+
+    list.prepend(row);
+  }
+
+  document.getElementById("addBtn").addEventListener("click", ()=>{
+    addRow(logoInput.value);
+    logoInput.value = "";
+    logoInput.focus();
+  });
+
+  document.getElementById("clearBtn").addEventListener("click", ()=>{
+    list.innerHTML = "";
+    showToast("已清空");
+  });
+
+  document.getElementById("seedBtn").addEventListener("click", ()=>{
+    ["#00a1e9","#57c3e0","#ff6900","#167939"].forEach(addRow);
+    showToast("已加入範例");
+  });
+
+  logoInput.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter"){ e.preventDefault(); document.getElementById("addBtn").click(); }
+  });
+</script>
+</body>
+</html>
